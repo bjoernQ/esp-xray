@@ -1,7 +1,15 @@
+#![feature(type_alias_impl_trait)]
+
 use async_net::TcpListener;
 use embassy_executor::Executor;
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex,
+    channel::{Channel, Receiver, Sender},
+};
+use embassy_time::Timer;
+use esp_xray::Message;
 use futures_lite::{AsyncReadExt, AsyncWriteExt, StreamExt};
-use static_cell::StaticCell;
+use static_cell::{make_static, StaticCell};
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
@@ -10,13 +18,32 @@ fn main() {
 
     let executor = EXECUTOR.init(Executor::new());
 
+    let channel = Channel::<CriticalSectionRawMutex, Message, 5>::new();
+    let channel = make_static!(channel);
+    let receiver = channel.receiver();
+    let sender = channel.sender();
+
     executor.run(|spawner| {
-        spawner.spawn(main_task()).unwrap();
+        spawner.spawn(xray_task(receiver)).unwrap();
+        spawner.spawn(producer_task(sender)).unwrap();
     });
 }
 
 #[embassy_executor::task]
-async fn main_task() {
+async fn producer_task(sender: Sender<'static, CriticalSectionRawMutex, Message, 5>) {
+    let mut isr = 0;
+    loop {
+        Timer::after_secs(1).await;
+        sender.send(Message::IsrEnter(isr)).await;
+        Timer::after_secs(1).await;
+        sender.send(Message::IsrExit).await;
+
+        isr = (isr + 1) % 16;
+    }
+}
+
+#[embassy_executor::task]
+async fn xray_task(receiver: Receiver<'static, CriticalSectionRawMutex, Message, 5>) {
     let listener = TcpListener::bind(("127.0.0.1", 8080)).await.unwrap();
 
     let mut incoming = listener.incoming();
@@ -27,7 +54,7 @@ async fn main_task() {
 
         let mut xray =
             esp_xray::SystemViewTarget::new(esp_xray::TcpTransport::default(), adapter).await;
-        xray.run().await;
+        xray.run(receiver).await;
     }
 }
 

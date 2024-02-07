@@ -1,5 +1,8 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![feature(async_closure)]
+
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Receiver};
 
 use crate::packet::Event;
 
@@ -8,6 +11,13 @@ pub mod packet;
 #[derive(Debug, Clone, Copy)]
 pub enum Error {
     UnknownCommand,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Message {
+    Disconnect,
+    IsrEnter(u8),
+    IsrExit,
 }
 
 pub trait Transport<IO>
@@ -77,7 +87,7 @@ where
 
     async fn skip_command_len(&self, io: &mut IO) {
         let mut buf = [0u8];
-        io.read_exact(&mut buf).await.unwrap();
+        io.read_exact(&mut buf).await.ok();
     }
 }
 
@@ -99,10 +109,11 @@ where
 {
     pub async fn new(transport: T, mut io: IO) -> Self {
         transport.hello(&mut io).await;
+
         Self { transport, io }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self, receiver: Receiver<'_, CriticalSectionRawMutex, Message, 5>) {
         #[cfg(feature = "log")]
         log::info!("Run...");
 
@@ -146,25 +157,39 @@ where
         .unwrap();
         self.io.write_all(&out[..l]).await.unwrap();
 
-        // everything is up now ... send events
+        // everything is up now ... we can send events
+        loop {
+            let transport = &self.transport;
+            let io = &mut self.io;
+            let msg = futures_lite::future::race(
+                (async || receiver.receive().await)(),
+                (async || {
+                    transport.skip_command_len(io).await;
+                    let _count = io.read(&mut cmd).await.unwrap();
+                    Message::Disconnect
+                })(),
+            )
+            .await;
 
-        let l = Event::IsrEnter {
-            isr: 5,
-            ts_delta: 30,
+            match msg {
+                Message::IsrEnter(isr) => {
+                    let l = Event::IsrEnter { isr, ts_delta: 30 }
+                        .encode(&mut out)
+                        .unwrap();
+                    self.io.write_all(&out[..l]).await.unwrap();
+                }
+                Message::IsrExit => {
+                    let l = Event::IsrExit { ts_delta: 10 }.encode(&mut out).unwrap();
+                    self.io.write_all(&out[..l]).await.unwrap();
+                }
+                Message::Disconnect => {
+                    // HOST disconnect
+                    let l = Event::TraceStop { ts_delta: 100 }.encode(&mut out).unwrap();
+                    self.io.write_all(&out[..l]).await.unwrap();
+                    break;
+                }
+            }
         }
-        .encode(&mut out)
-        .unwrap();
-        self.io.write_all(&out[..l]).await.unwrap();
-
-        let l = Event::IsrExit { ts_delta: 10 }.encode(&mut out).unwrap();
-        self.io.write_all(&out[..l]).await.unwrap();
-
-        // maybe read Command::Stop
-        self.transport.skip_command_len(&mut self.io).await;
-        let _count = self.io.read(&mut cmd).await.unwrap();
-
-        let l = Event::TraceStop { ts_delta: 100 }.encode(&mut out).unwrap();
-        self.io.write_all(&out[..l]).await.unwrap();
 
         #[cfg(feature = "log")]
         log::info!("Done.");
