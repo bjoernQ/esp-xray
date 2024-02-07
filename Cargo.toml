@@ -1,0 +1,24 @@
+[package]
+name = "esp-xray"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embedded-io-async = { version = "0.6.1" }
+log = { version = "0.4.20", default-features = false, optional = true }
+
+[dev-dependencies]
+embassy-executor = { version = "0.5.0", features = [
+    "task-arena-size-32768",
+    "arch-std",
+    "executor-thread",
+] }
+critical-section = { version = "1.1", features = ["std"] }
+embedded-io-async = { version = "0.6.1", features = ["std"] }
+static_cell = "2"
+async-net = "2.0.0"
+futures-lite = "2.2.0"
+pretty_env_logger = "0.5.0"
+
+[features]
+log = ["dep:log"]
