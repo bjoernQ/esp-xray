@@ -1,3 +1,6 @@
+use std::net::TcpListener;
+
+use esp_xray::Message;
 use probe_rs::rtt::{Channels, Rtt, RttChannel, ScanRegion};
 use probe_rs::{config::TargetSelector, probe::DebugProbeInfo};
 use probe_rs::{probe::list::Lister, Permissions};
@@ -46,11 +49,30 @@ fn main() {
 
     let up_channel = rtt.up_channels().take(0).unwrap();
 
-    loop {
-        let mut buf = [0u8; 1024];
-        let x = up_channel.read(&mut core, &mut buf).unwrap();
-        if x != 0 {
-            println!("done {x} {:x?}", &buf[..x]);
+    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
+
+        println!("Connection established!");
+
+        let mut xray = esp_xray::SystemViewTarget::new(esp_xray::TcpTransport::default(), stream);
+
+        loop {
+            let mut buf = [0u8; 1024];
+            let x = up_channel.read(&mut core, &mut buf).unwrap();
+            if x != 0 {
+                match buf[0] {
+                    6 => {
+                        xray.send(Message::IsrEnter(5));
+                    }
+                    2 => {
+                        xray.send(Message::IsrExit);
+                    }
+                    _ => (),
+                }
+            }
+            // TODO handle disconnect command / commands in general
         }
     }
 }

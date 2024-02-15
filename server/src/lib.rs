@@ -1,6 +1,4 @@
-#![no_std]
-#![allow(async_fn_in_trait)]
-#![feature(async_closure)]
+use std::io::{Read, Write};
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Receiver};
 
@@ -22,11 +20,11 @@ pub enum Message {
 
 pub trait Transport<IO>
 where
-    IO: embedded_io_async::Read + embedded_io_async::Write,
+    IO: Read + Write,
 {
-    async fn hello(&self, io: &mut IO);
+    fn hello(&self, io: &mut IO);
 
-    async fn skip_command_len(&self, io: &mut IO);
+    fn skip_command_len(&self, io: &mut IO);
 }
 
 #[derive(Default)]
@@ -34,11 +32,11 @@ pub struct TcpTransport {}
 
 impl<IO> Transport<IO> for TcpTransport
 where
-    IO: embedded_io_async::Read + embedded_io_async::Write,
+    IO: Read + Write,
 {
-    async fn hello(&self, io: &mut IO) {
+    fn hello(&self, io: &mut IO) {
         let mut buf = [0u8; 48];
-        let _count = io.read(&mut buf).await.unwrap();
+        let _count = io.read(&mut buf).unwrap();
 
         // TODO we should check the host's HELLO
 
@@ -76,18 +74,16 @@ where
             0,
             0,
         ])
-        .await
         .unwrap();
 
         // AB sync
         io.write_all(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-            .await
             .unwrap();
     }
 
-    async fn skip_command_len(&self, io: &mut IO) {
+    fn skip_command_len(&self, io: &mut IO) {
         let mut buf = [0u8];
-        io.read_exact(&mut buf).await.ok();
+        io.read_exact(&mut buf).ok();
     }
 }
 
@@ -96,7 +92,7 @@ where
 pub struct SystemViewTarget<T, IO>
 where
     T: Transport<IO>,
-    IO: embedded_io_async::Read + embedded_io_async::Write,
+    IO: Read + Write,
 {
     transport: T,
     io: IO,
@@ -105,30 +101,21 @@ where
 impl<T, IO> SystemViewTarget<T, IO>
 where
     T: Transport<IO>,
-    IO: embedded_io_async::Read + embedded_io_async::Write,
+    IO: Read + Write,
 {
-    pub async fn new(transport: T, mut io: IO) -> Self {
-        transport.hello(&mut io).await;
-
-        Self { transport, io }
-    }
-
-    pub async fn run(&mut self, receiver: Receiver<'_, CriticalSectionRawMutex, Message, 5>) {
-        #[cfg(feature = "log")]
-        log::info!("Run...");
-
-        // TODO implement something "real" :)
+    pub fn new(transport: T, mut io: IO) -> Self {
+        transport.hello(&mut io);
 
         let mut cmd = [0u8; 5];
         let mut out = [0u8; 32];
 
         // read start command
-        self.transport.skip_command_len(&mut self.io).await;
-        let _count = self.io.read(&mut cmd).await.unwrap();
+        transport.skip_command_len(&mut io);
+        let _count = io.read(&mut cmd).unwrap();
 
         // should be answer to Command::Start
         let l = Event::TraceStart { ts_delta: 0 }.encode(&mut out).unwrap();
-        self.io.write(&out[..l]).await.unwrap();
+        io.write(&out[..l]).unwrap();
 
         let l = Event::Init {
             sys_freq: 80000,
@@ -139,7 +126,7 @@ where
         }
         .encode(&mut out)
         .unwrap();
-        self.io.write(&out[..l]).await.unwrap();
+        io.write(&out[..l]).unwrap();
 
         let l = Event::SystimeCycles {
             time: 1000,
@@ -147,7 +134,7 @@ where
         }
         .encode(&mut out)
         .unwrap();
-        self.io.write_all(&out[..l]).await.unwrap();
+        io.write_all(&out[..l]).unwrap();
 
         let l = Event::NumModules {
             modules: 0,
@@ -155,44 +142,36 @@ where
         }
         .encode(&mut out)
         .unwrap();
-        self.io.write_all(&out[..l]).await.unwrap();
+        io.write_all(&out[..l]).unwrap();
 
-        // everything is up now ... we can send events
-        loop {
-            let transport = &self.transport;
-            let io = &mut self.io;
-            let msg = futures_lite::future::race(
-                (async || receiver.receive().await)(),
-                (async || {
-                    transport.skip_command_len(io).await;
-                    let _count = io.read(&mut cmd).await.unwrap();
-                    Message::Disconnect
-                })(),
-            )
-            .await;
+        Self { transport, io }
+    }
 
-            match msg {
-                Message::IsrEnter(isr) => {
-                    let l = Event::IsrEnter { isr, ts_delta: 30 }
-                        .encode(&mut out)
-                        .unwrap();
-                    self.io.write_all(&out[..l]).await.unwrap();
+    pub fn send(&mut self, msg: Message) {
+        #[cfg(feature = "log")]
+        log::info!("Run...");
 
-                    let l = Event::PrintFormatted { s: "Hello World", ts_delta: 5 } 
-                        .encode(&mut out)
-                        .unwrap();
-                    self.io.write_all(&out[..l]).await.unwrap();
-                }
-                Message::IsrExit => {
-                    let l = Event::IsrExit { ts_delta: 10 }.encode(&mut out).unwrap();
-                    self.io.write_all(&out[..l]).await.unwrap();
-                }
-                Message::Disconnect => {
-                    // HOST disconnect
-                    let l = Event::TraceStop { ts_delta: 100 }.encode(&mut out).unwrap();
-                    self.io.write_all(&out[..l]).await.unwrap();
-                    break;
-                }
+        let mut cmd = [0u8; 5];
+        let mut out = [0u8; 32];
+
+        let transport = &self.transport;
+        let io = &mut self.io;
+
+        match msg {
+            Message::IsrEnter(isr) => {
+                let l = Event::IsrEnter { isr, ts_delta: 30 }
+                    .encode(&mut out)
+                    .unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::IsrExit => {
+                let l = Event::IsrExit { ts_delta: 10 }.encode(&mut out).unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::Disconnect => {
+                // HOST disconnect
+                let l = Event::TraceStop { ts_delta: 100 }.encode(&mut out).unwrap();
+                self.io.write_all(&out[..l]).unwrap();
             }
         }
 

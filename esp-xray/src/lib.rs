@@ -4,8 +4,8 @@ use core::cell::RefCell;
 
 use critical_section::Mutex;
 use rtos_trace::RtosTrace;
-use rtt_target::{rtt_init, UpChannel};
 use rtt_target::ChannelMode::NoBlockSkip;
+use rtt_target::{rtt_init, UpChannel};
 
 struct RtosTraceImpl;
 
