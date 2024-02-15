@@ -9,6 +9,7 @@ embassy-sync = "0.5.0"
 futures-lite = "2.2.0"
 critical-section = { version = "1.1" }
 log = { version = "0.4.20", default-features = false, optional = true }
+probe-rs = { path = "/projects/forks/probe-rs/probe-rs" }
 
 [dev-dependencies]
 embassy-executor = { version = "0.5.0", features = [

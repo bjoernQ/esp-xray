@@ -177,6 +177,11 @@ where
                         .encode(&mut out)
                         .unwrap();
                     self.io.write_all(&out[..l]).await.unwrap();
+
+                    let l = Event::PrintFormatted { s: "Hello World", ts_delta: 5 } 
+                        .encode(&mut out)
+                        .unwrap();
+                    self.io.write_all(&out[..l]).await.unwrap();
                 }
                 Message::IsrExit => {
                     let l = Event::IsrExit { ts_delta: 10 }.encode(&mut out).unwrap();
