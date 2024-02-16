@@ -503,7 +503,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "esp-xray"
+name = "esp-xray-server"
 version = "0.1.0"
 dependencies = [
  "critical-section",

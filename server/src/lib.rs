@@ -1,8 +1,6 @@
 use std::io::{Read, Write};
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Receiver};
-
-use crate::packet::Event;
+use crate::packet::{Cause, Event};
 
 pub mod packet;
 
@@ -13,9 +11,15 @@ pub enum Error {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Message {
-    Disconnect,
-    IsrEnter(u8),
-    IsrExit,
+    Disconnect(u32),
+    IsrEnter(u8, u32),
+    IsrExit(u32),
+    TaskNew(u32, u32),
+    TaskExecBegin(u32, u32),
+    TaskExecEnd(u32),
+    TaskReadyBegin(u32, u32),
+    TaskReadyEnd(u32, u32),
+    SystemIdle(u32),
 }
 
 pub trait Transport<IO>
@@ -118,8 +122,8 @@ where
         io.write(&out[..l]).unwrap();
 
         let l = Event::Init {
-            sys_freq: 80000,
-            cpu_freq: 160000,
+            sys_freq: 16000000,
+            cpu_freq: 160000000,
             ram_base: 0x40000000,
             id_shift: 2,
             ts_delta: 1,
@@ -158,19 +162,53 @@ where
         let io = &mut self.io;
 
         match msg {
-            Message::IsrEnter(isr) => {
-                let l = Event::IsrEnter { isr, ts_delta: 30 }
+            Message::IsrEnter(isr, ts_delta) => {
+                let l = Event::IsrEnter { isr, ts_delta }.encode(&mut out).unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::IsrExit(ts_delta) => {
+                let l = Event::IsrExit { ts_delta }.encode(&mut out).unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::Disconnect(ts_delta) => {
+                // HOST disconnect
+                let l = Event::TraceStop { ts_delta }.encode(&mut out).unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::TaskNew(task, ts_delta) => {
+                let l = Event::TaskCreate { task, ts_delta }
                     .encode(&mut out)
                     .unwrap();
                 self.io.write_all(&out[..l]).unwrap();
             }
-            Message::IsrExit => {
-                let l = Event::IsrExit { ts_delta: 10 }.encode(&mut out).unwrap();
+            Message::TaskExecBegin(task, ts_delta) => {
+                let l = Event::TaskStartExec { task, ts_delta }
+                    .encode(&mut out)
+                    .unwrap();
                 self.io.write_all(&out[..l]).unwrap();
             }
-            Message::Disconnect => {
-                // HOST disconnect
-                let l = Event::TraceStop { ts_delta: 100 }.encode(&mut out).unwrap();
+            Message::TaskExecEnd(ts_delta) => {
+                let l = Event::TaskStopExec { ts_delta }.encode(&mut out).unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::TaskReadyBegin(task, ts_delta) => {
+                let l = Event::TaskStartReady { task, ts_delta }
+                    .encode(&mut out)
+                    .unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::TaskReadyEnd(task, ts_delta) => {
+                let l = Event::TaskStopReady {
+                    task,
+                    cause: Cause::Idle,
+                    ts_delta,
+                }
+                .encode(&mut out)
+                .unwrap();
+                self.io.write_all(&out[..l]).unwrap();
+            }
+            Message::SystemIdle(ts_delta) => {
+                let l = Event::Idle { ts_delta }.encode(&mut out).unwrap();
                 self.io.write_all(&out[..l]).unwrap();
             }
         }

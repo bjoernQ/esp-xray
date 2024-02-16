@@ -3,7 +3,7 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum Cause {
-    Idle, // ??? ids?
+    Idle,
     Sleep,
 }
 
@@ -288,6 +288,22 @@ fn encode_str(s: &str, buffer: &mut [u8], mut count: usize) -> usize {
     count
 }
 
+pub fn decode_u32(buffer: &[u8], index: usize) -> (usize, u32) {
+    let mut index = index;
+    let mut value = 0u32;
+    let mut shift = 0u32;
+
+    while buffer[index] & 0x80 != 0 {
+        value |= ((buffer[index] & 0x7f) as u32) << shift;
+        shift += 7;
+        index += 1;
+    }
+    value |= ((buffer[index] & 0x7f) as u32) << shift;
+    index += 1;
+
+    (index, value)
+}
+
 /// Commands sent by host
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -326,6 +342,16 @@ mod test {
         let mut buffer = [0u8; 10];
         let count = encode_u32(0x7000, &mut buffer, 0);
         assert_eq!(&[0x80, 0xE0, 0x01], &buffer[..count]);
+    }
+
+    #[test]
+    fn test_decode0x50() {
+        assert_eq!((1, 0x50), decode_u32(&[0x50], 0));
+    }
+
+    #[test]
+    fn test_decode0x7000() {
+        assert_eq!((3, 0x7000), decode_u32(&[0x80, 0xE0, 0x01], 0));
     }
 
     #[test]

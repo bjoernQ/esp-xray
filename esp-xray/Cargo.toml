@@ -7,3 +7,8 @@ edition = "2021"
 rtos-trace = "0.1.3"
 rtt-target = "0.5.0"
 critical-section = "1.1.2"
+esp32c6-hal = { path = "/projects/esp/esp-hal/esp32c6-hal", optional = true }
+log = "0.4.20"
+
+[features]
+esp32c6 = [ "dep:esp32c6-hal" ]
