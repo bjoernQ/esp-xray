@@ -4,6 +4,24 @@ use crate::packet::{Cause, Event};
 
 pub mod packet;
 
+#[macro_export]
+macro_rules! block {
+    ($e:expr) => {
+        loop {
+            #[allow(unreachable_patterns)]
+            match $e {
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(e) =>
+                {
+                    #[allow(unreachable_code)]
+                    break Err(e)
+                }
+                Ok(x) => break Ok(x),
+            }
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Error {
     UnknownCommand,
@@ -28,7 +46,7 @@ where
 {
     fn hello(&self, io: &mut IO);
 
-    fn skip_command_len(&self, io: &mut IO);
+    fn skip_command_len(&self, io: &mut IO) -> bool;
 }
 
 #[derive(Default)]
@@ -40,7 +58,7 @@ where
 {
     fn hello(&self, io: &mut IO) {
         let mut buf = [0u8; 48];
-        let _count = io.read(&mut buf).unwrap();
+        let _count = block!(io.read(&mut buf)).unwrap();
 
         // TODO we should check the host's HELLO
 
@@ -85,9 +103,12 @@ where
             .unwrap();
     }
 
-    fn skip_command_len(&self, io: &mut IO) {
+    fn skip_command_len(&self, io: &mut IO) -> bool {
         let mut buf = [0u8];
-        io.read_exact(&mut buf).ok();
+        match io.read_exact(&mut buf) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
     }
 }
 
@@ -114,13 +135,14 @@ where
         let mut out = [0u8; 32];
 
         // read start command
-        transport.skip_command_len(&mut io);
-        let _count = io.read(&mut cmd).unwrap();
+        while !transport.skip_command_len(&mut io) {}
+        let _count = block!(io.read(&mut cmd)).unwrap();
 
         // should be answer to Command::Start
         let l = Event::TraceStart { ts_delta: 0 }.encode(&mut out).unwrap();
         io.write(&out[..l]).unwrap();
 
+        // TODO get it from the target
         let l = Event::Init {
             sys_freq: 16000000,
             cpu_freq: 160000000,
@@ -151,16 +173,30 @@ where
         Self { transport, io }
     }
 
+    pub fn process_incoming(&mut self) -> bool {
+        let mut cmd = [0u8; 5];
+        let transport = &mut self.transport;
+        let io = &mut self.io;
+
+        if transport.skip_command_len(io) {
+            let _count = block!(io.read(&mut cmd)).unwrap();
+            // for now assume anything from the host will be a Disconnect command
+            // TODO send Event::TraceStop
+            let mut out = [0u8; 32];
+            let l = Event::TraceStop { ts_delta: 0 }.encode(&mut out).unwrap();
+            io.write_all(&out[..l]).unwrap();
+
+            return _count > 0;
+        }
+
+        false
+    }
+
     pub fn send(&mut self, msg: Message) {
         #[cfg(feature = "log")]
         log::info!("Run...");
 
-        let mut cmd = [0u8; 5];
         let mut out = [0u8; 32];
-
-        let transport = &self.transport;
-        let io = &mut self.io;
-
         match msg {
             Message::IsrEnter(isr, ts_delta) => {
                 let l = Event::IsrEnter { isr, ts_delta }.encode(&mut out).unwrap();
