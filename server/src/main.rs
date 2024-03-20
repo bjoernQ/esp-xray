@@ -1,9 +1,11 @@
 use std::net::TcpListener;
 
 use esp_xray_server::Message;
-use probe_rs::config::TargetSelector;
+use probe_rs::config::{MemoryRegion, TargetSelector};
 use probe_rs::rtt::{Rtt, ScanRegion};
 use probe_rs::{probe::list::Lister, Permissions};
+
+use clap::Parser;
 
 enum TargetEvent {
     TaskNew = 1,
@@ -30,7 +32,21 @@ impl TargetEvent {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    chip: String,
+}
+
+fn normalize(chip_name: &str) -> String {
+    chip_name.replace('-', "").to_ascii_lowercase()
+}
+
 fn main() {
+    let args = Args::parse();
+    let chip = normalize(&args.chip);
+
     let lister = Lister::new();
 
     let probes = lister.list_all();
@@ -39,10 +55,10 @@ fn main() {
         panic!("No debug probes available. Make sure your probe is plugged in, supported and up-to-date.");
     }
 
-    let probe = probes[0].open(&lister).unwrap();
+    let probe = probes[0].open().unwrap();
 
     // take from cmd line, or Auto?
-    let target_selector = TargetSelector::from("esp32c6");
+    let target_selector = TargetSelector::from(chip);
 
     let mut session = match probe.attach(target_selector, Permissions::default()) {
         Ok(session) => session,
@@ -51,7 +67,15 @@ fn main() {
         }
     };
 
-    let memory_map = session.target().memory_map.clone();
+    let memory_map: Vec<MemoryRegion> = vec![session
+        .target()
+        .memory_map
+        .clone()
+        .iter()
+        .filter(|m| matches!(m, probe_rs::config::MemoryRegion::Ram(_)))
+        .next()
+        .unwrap()
+        .clone()];
 
     let mut core = match session.core(0) {
         Ok(core) => core,

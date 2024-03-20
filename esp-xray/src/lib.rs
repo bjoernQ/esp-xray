@@ -7,9 +7,6 @@ use rtos_trace::RtosTrace;
 use rtt_target::ChannelMode::NoBlockSkip;
 use rtt_target::{rtt_init, UpChannel};
 
-#[cfg(feature = "esp32c6")]
-use esp32c6_hal as hal;
-
 struct RtosTraceImpl;
 
 enum Event {
@@ -71,7 +68,7 @@ impl RtosTrace for RtosTraceImpl {
     fn task_send_info(_id: u32, _info: rtos_trace::TaskInfo) {}
 
     fn task_terminate(_id: u32) {}
-    
+
     fn isr_enter() {}
 
     fn isr_exit() {}
@@ -93,7 +90,7 @@ static LAST_TS: Mutex<RefCell<u64>> = Mutex::new(RefCell::new(0));
 fn get_ts_delta() -> u32 {
     critical_section::with(|cs| {
         let last = LAST_TS.take(cs);
-        let now = hal::systimer::SystemTimer::now();
+        let now = esp_hal::systimer::SystemTimer::now();
         LAST_TS.replace(cs, now);
 
         if last == 0 {
