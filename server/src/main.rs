@@ -85,18 +85,22 @@ fn main() {
 
     eprintln!("Attaching to RTT... {:x?}", &memory_map);
 
-    let mut rtt = match Rtt::attach_region(&mut core, &memory_map, &ScanRegion::Ram) {
+    let mut rtt = match Rtt::attach_region(&mut core,  &ScanRegion::Ram) {
         Ok(rtt) => rtt,
         Err(err) => {
             panic!("Error attaching to RTT: {err}");
         }
     };
 
-    let up_channel = rtt.up_channels().take(0).unwrap();
+    let up_channel = &mut rtt.up_channels()[0];
 
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
 
     println!("Attached ... listening on :7878");
+
+    if core.core_halted().unwrap() {
+        core.run().unwrap();
+    }
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();

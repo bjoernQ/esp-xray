@@ -40,7 +40,7 @@ async fn main(spawner: Spawner) {
         esp_println::println!("Bing!");
         for _ in 0..22000 {}
         Timer::after(Duration::from_millis(
-            rng.random() as u64 / (u32::MAX / 100) as u64,
+            rng.random() as u64 % 10,
         ))
         .await;
     }
