@@ -4,11 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-log = { version = "0.4.20", default-features = false, optional = true }
+log = { version = "0.4.22", default-features = false }
 probe-rs = { git = "https://github.com/probe-rs/probe-rs", rev = "4cd55afb4662fa9b7bc83ae11eea39256b50d866", package = "probe-rs" }
-critical-section = { version = "1.1", features = ["std"] }
 pretty_env_logger = "0.5.0"
-clap = { version = "4.3.0", features = ["derive"] }
-
-[features]
-log = ["dep:log"]
+clap = { version = "4.5.18", features = ["derive"] }

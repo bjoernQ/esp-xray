@@ -193,7 +193,6 @@ where
     }
 
     pub fn send(&mut self, msg: Message) {
-        #[cfg(feature = "log")]
         log::info!("Run...");
 
         let mut out = [0u8; 32];
@@ -249,7 +248,6 @@ where
             }
         }
 
-        #[cfg(feature = "log")]
         log::info!("Done.");
     }
 }

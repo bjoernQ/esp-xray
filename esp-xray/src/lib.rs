@@ -90,7 +90,7 @@ static LAST_TS: Mutex<RefCell<u64>> = Mutex::new(RefCell::new(0));
 fn get_ts_delta() -> u32 {
     critical_section::with(|cs| {
         let last = LAST_TS.take(cs);
-        let now = esp_hal::systimer::SystemTimer::now();
+        let now = esp_hal::time::current_time().ticks();
         LAST_TS.replace(cs, now);
 
         if last == 0 {

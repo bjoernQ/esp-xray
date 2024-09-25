@@ -57,7 +57,6 @@ fn main() {
 
     let probe = probes[0].open().unwrap();
 
-    // take from cmd line, or Auto?
     let target_selector = TargetSelector::from(chip);
 
     let mut session = match probe.attach(target_selector, Permissions::default()) {
